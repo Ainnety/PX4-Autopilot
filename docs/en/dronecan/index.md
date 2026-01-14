@@ -27,6 +27,8 @@ Connecting peripherals over DroneCAN has many benefits:
 - Wiring is less complicated as you can have a single bus for connecting all your ESCs and other DroneCAN peripherals.
 - Setup is easier as you configure ESC numbering by manually spinning each motor.
 - It allows users to configure and update the firmware of all CAN-connected devices centrally through PX4.
+- PX4 automatically tracks device information (vendor, model, versions, serial numbers) for maintenance and fleet management.
+  See [Asset Tracking](../debug/asset_tracking.md).
 
 ## Supported Hardware
 
@@ -62,6 +64,8 @@ Supported hardware includes (this is not an exhaustive list):
   - [Holybro RM3100 Professional Grade Compass](https://holybro.com/products/dronecan-rm3100-compass)
   - [RaccoonLab RM3100 Magnetometer](https://docs.raccoonlab.co/guide/gps_mag_baro/mag_rm3100.html)
 - Distance sensors
+  - [ARK Dist](ark_dist.md)
+  - [Ark Dist MR](ark_dist_mr.md)
   - [ARK Flow](ark_flow.md)
   - [Ark Flow MR](ark_flow_mr.md)
   - [Avionics Anonymous Laser Altimeter UAVCAN Interface](../dronecan/avanon_laser_interface.md)
@@ -96,6 +100,10 @@ If the DNA is still running and certain devices need to be manually configured, 
 ::: info
 The PX4 node ID can be configured using the [UAVCAN_NODE_ID](../advanced_config/parameter_reference.md#UAVCAN_NODE_ID) parameter.
 The parameter is set to 1 by default.
+
+Devices running the [PX4 DroneCAN firmware](px4_cannode_fw.md) (such as [ARK CANnode](ark_cannode.md)) can use the
+[CANNODE_NODE_ID](../advanced_config/parameter_reference.md#CANNODE_NODE_ID) parameter to set a static node ID.
+Set it to 0 (default) for dynamic allocation, or to a value between 1-127 to use a specific static node ID.
 :::
 
 :::warning
@@ -281,6 +289,11 @@ CAN nodes are displayed separate sections in [Vehicle Settings > Parameters](../
 For example, the screenshot below shows the parameters for a CAN GPS with node id 125 (after the _Standard_, _System_, and _Developer_ parameter groupings).
 
 ![QGC Parameter showing selected DroneCAN node](../../assets/can/dronecan/qgc_can_parameters.png)
+
+Common CANNODE parameters that you can configure include:
+
+- [CANNODE_NODE_ID](../advanced_config/parameter_reference.md#CANNODE_NODE_ID): Set a static node ID (1-127) or use 0 for dynamic allocation. See [PX4 DroneCAN Firmware > Static Node ID](px4_cannode_fw.md#static-node-id) for more information.
+- [CANNODE_TERM](../advanced_config/parameter_reference.md#CANNODE_TERM): Enable CAN bus termination on the last node in the bus.
 
 ## Device Specific Setup
 
