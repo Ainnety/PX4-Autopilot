@@ -39,15 +39,14 @@
 #include <uORB/topics/sensor_gyro.h>
 #include <uORB/topics/sensor_gyro_fifo.h>
 
+#include <lib/failure_injection/FailureInjection.hpp>
+
 class PX4Gyroscope
 {
 public:
 	PX4Gyroscope(uint32_t device_id, enum Rotation rotation = ROTATION_NONE);
 	~PX4Gyroscope();
 
-	uint32_t get_device_id() const { return _device_id; }
-
-	int32_t get_max_rate_hz() const { return math::constrain(_imu_gyro_rate_max, static_cast<int32_t>(100), static_cast<int32_t>(4000)); }
 
 	void set_device_id(uint32_t device_id) { _device_id = device_id; }
 	void set_device_type(uint8_t devtype);
@@ -60,7 +59,9 @@ public:
 
 	void updateFIFO(sensor_gyro_fifo_s &sample);
 
+	uint32_t get_device_id() const { return _device_id; }
 	int get_instance() { return _sensor_pub.get_instance(); };
+	int32_t get_max_rate_hz() const { return math::constrain(_imu_gyro_rate_max, static_cast<int32_t>(100), static_cast<int32_t>(4000)); }
 
 private:
 	void UpdateClipLimit();
@@ -82,4 +83,8 @@ private:
 	uint32_t		_error_count{0};
 
 	int16_t			_last_sample[3] {};
+
+	failure_injection::Config _failure_config;
+	failure_injection::Stuck<sensor_gyro_s> _stuck;
+	failure_injection::Stuck<sensor_gyro_fifo_s> _stuck_fifo;
 };

@@ -21,10 +21,12 @@ Manual-Easy:
 - [Stabilized mode](../flight_modes_mc/manual_stabilized.md) — Releasing the sticks levels and maintains the vehicle horizontal posture (but not altitude or position).
   The vehicle will continue to move with momentum, and both altitude and horizontal position may be affected by wind.
   This mode is also used if "Manual mode" is selected in a ground station.
+- [Altitude Cruise mode](../flight_modes_mc/altitude_cruise.md) — Very similar to _Altitude mode_, with the difference that when the roll and pitch sticks are released the vehicle does not level out but keeps the tilt until further inputs are given.
+  Additionally it is possible to disable the manual control failsafe for this mode, having the vehicle continue on it's set path even if there are no new control inputs.
 
 Manual-Acrobatic
 
-- [Acro](../flight_modes_mc/acro.md) — Manual mode for performing acrobatic maneuvers, such as rolls and loops.
+- [Acro](../flight_modes_mc/acro.md) — Manual mode for performing acrobatic manoeuvrers, such as rolls and loops.
   Releasing the sticks stops the vehicle rotating in the roll, pitch, yaw axes, but does not otherwise stabilise the vehicle.
 
 Autonomous:
@@ -36,6 +38,7 @@ Autonomous:
   This requires a global position estimate (GPS).
 - [Takeoff](../flight_modes_mc/takeoff.md) — Vehicle takes off vertically and then switches to _Hold mode_.
 - [Land](../flight_modes_mc/land.md) — Vehicle lands immediately.
+- [Descend](../flight_modes_mc/descend.md) — Failsafe fallback: the vehicle descends without horizontal position control (used when the position estimate is lost). Not pilot-selectable.
 - [Orbit](../flight_modes_mc/orbit.md) - Vehicle flys in a circle, yawing so that it always faces towards the center.
   RC control can optionally be used to change the orbit radius, direction, speed and so on.
 - [Follow Me](../flight_modes_mc/follow_me.md) — Vehicle follows a beacon that is providing position setpoints.

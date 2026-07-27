@@ -69,6 +69,13 @@ void getModeRequirements(uint8_t vehicle_type, failsafe_flags_s &flags)
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTCTL, flags.mode_req_local_alt);
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTCTL, flags.mode_req_manual_control);
 
+	// NAVIGATION_STATE_ALTITUDE_CRUISE
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTITUDE_CRUISE, flags.mode_req_angular_velocity);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTITUDE_CRUISE, flags.mode_req_attitude);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTITUDE_CRUISE, flags.mode_req_local_alt);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_ALTITUDE_CRUISE,
+		       flags.mode_req_manual_control); // COM_RCL_EXCEPT can override this
+
 	// NAVIGATION_STATE_POSCTL
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSCTL, flags.mode_req_angular_velocity);
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSCTL, flags.mode_req_attitude);
@@ -115,6 +122,13 @@ void getModeRequirements(uint8_t vehicle_type, failsafe_flags_s &flags)
 
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER, flags.mode_req_local_alt);
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER, flags.mode_req_wind_and_flight_time_compliance);
+
+	// NAVIGATION_STATE_GUIDED_COURSE
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_GUIDED_COURSE, flags.mode_req_angular_velocity);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_GUIDED_COURSE, flags.mode_req_attitude);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_GUIDED_COURSE, flags.mode_req_local_alt);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_GUIDED_COURSE, flags.mode_req_wind_and_flight_time_compliance);
+	setRequirement(vehicle_status_s::NAVIGATION_STATE_GUIDED_COURSE, flags.mode_req_local_position_relaxed);
 
 	// NAVIGATION_STATE_AUTO_RTL
 	setRequirement(vehicle_status_s::NAVIGATION_STATE_AUTO_RTL, flags.mode_req_angular_velocity);

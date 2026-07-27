@@ -9,20 +9,18 @@ const { site } = useData();
 
 <div v-if="site.title !== 'PX4 Guide (main)'">
   <div class="custom-block danger">
-    <p class="custom-block-title">This page is on a release branch, and hence probably out of date. <a href="https://docs.px4.io/main/en/releases/main.html">See the latest version</a>.</p>
+    <p class="custom-block-title">This page is on a release branch, and hence probably out of date. <a href="https://docs.px4.io/main/en/releases/main">See the latest version</a>.</p>
   </div>
 </div>
 
-This contains changes to PX4 `main` branch since the last major release ([PX v1.16](../releases/1.16.md)).
+This contains changes to the PX4 `main` branch that are not included in the next release ([PX4 v1.18](../releases/1.18.md)).
 
 ::: warning
-PX4 v1.16 is in candidate-release testing, pending release.
-Update these notes with features that are going to be in `main` but not the PX4 v1.16 release.
+PX4 v1.18 is in beta testing.
+Update these notes with features that are going to be in `main` (PX4 v1.19 or later) but not the PX4 v1.18 release.
 :::
 
 ## Read Before Upgrading
-
-TBD …
 
 Please continue reading for [upgrade instructions](#upgrade-guide).
 
@@ -32,7 +30,11 @@ Please continue reading for [upgrade instructions](#upgrade-guide).
 
 ## Upgrade Guide
 
+- `COM_ARM_TRAFF` has been replaced by `COM_TRAFF_AVOID`. The old value 3 ("enforce for mission modes only") is migrated to `COM_TRAFF_AVOID=2`, which blocks arming in all modes, not just mission modes. If you relied on being able to arm manually with traffic detected, set `COM_TRAFF_AVOID=1` (warning only) instead.
+
 ## Other changes
+
+- Fast mission Return modes ([RTL_TYPE](../advanced_config/parameter_reference.md#RTL_TYPE) = 2 and 4) now skip `DO_JUMP` commands (loops) while following the mission path. ([PX4-Autopilot#26993: fix(navigator): goToNextPositionItem skip loops when required](https://github.com/PX4/PX4-Autopilot/pull/26993))
 
 ### Hardware Support
 
@@ -40,11 +42,15 @@ Please continue reading for [upgrade instructions](#upgrade-guide).
 
 ### Common
 
-- [QGroundControl Bootloader Update](../advanced_config/bootloader_update.md#qgc-bootloader-update-sys-bl-update) via the [SYS_BL_UPDATE](../advanced_config/parameter_reference.md#SYS_BL_UPDATE) parameter has been re-enabled after being broken for a number of releases. ([PX4-Autopilot#25032: build: romf: fix generation of rc.board_bootloader_upgrade](https://github.com/PX4/PX4-Autopilot/pull/25032)).
+- TBD
 
 ### Control
 
 - TBD
+
+### Safety
+
+- [Geofence Aware Return mode](../flight_modes/return.md#geofence_awareness). ([PX4-Autopilot#27145: feat(navigator): Geofence Aware RTL](https://github.com/PX4/PX4-Autopilot/pull/27145), [PX4-Autopilot#28001: docs(navigator): [geofence] added some more warnings about limitations](https://github.com/PX4/PX4-Autopilot/pull/28001)).
 
 ### Estimation
 
@@ -52,9 +58,13 @@ Please continue reading for [upgrade instructions](#upgrade-guide).
 
 ### Sensors
 
-- Add [sbgECom INS driver](../sensor/sbgecom.md) ([PX4-Autopilot#24137](https://github.com/PX4/PX4-Autopilot/pull/24137))
+- TBD
 
 ### Simulation
+
+- TBD
+
+### Debug & Logging
 
 - TBD
 
@@ -62,11 +72,15 @@ Please continue reading for [upgrade instructions](#upgrade-guide).
 
 - TBD
 
-### uXRCE-DDS / ROS2
+### uXRCE-DDS / Zenoh / ROS2
 
-- [PX4 ROS 2 Interface Library](../ros2/px4_ros2_control_interface.md) support for [Fixed Wing lateral/longitudinal setpoint](../ros2/px4_ros2_control_interface.md#fixed-wing-lateral-and-longitudinal-setpoint-fwlaterallongitudinalsetpointtype) (`FwLateralLongitudinalSetpointType`) and [VTOL transitions](../ros2/px4_ros2_control_interface.md#controlling-a-vtol). ([PX4-Autopilot#24056](https://github.com/PX4/PX4-Autopilot/pull/24056)).
+- TBD
 
 ### MAVLink
+
+- TBD
+
+### RC
 
 - TBD
 
@@ -80,12 +94,11 @@ Please continue reading for [upgrade instructions](#upgrade-guide).
 
 ### Fixed-wing
 
-- [Fixed Wing Takeoff mode](../flight_modes_fw/takeoff.md) will now keep climbing with level wings on position loss.
-  A target takeoff waypoint can be set to control takeoff course and loiter altitude. ([PX4-Autopilot#25083](https://github.com/PX4/PX4-Autopilot/pull/25083)).
+- TBD
 
 ### Rover
 
-- Removed deprecated rover module ([PX4-Autopilot#25054](https://github.com/PX4/PX4-Autopilot/pull/25054)).
+- TBD
 
 ### ROS 2
 

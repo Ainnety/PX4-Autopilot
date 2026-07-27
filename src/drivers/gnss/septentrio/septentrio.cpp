@@ -56,7 +56,7 @@
 #include <px4_platform_common/log.h>
 #include <px4_platform_common/time.h>
 #include <lib/systemlib/mavlink_log.h>
-#include <uORB/topics/gps_inject_data.h>
+#include <uORB/topics/rtcm_data.h>
 #include <uORB/topics/sensor_gps.h>
 
 #include "util.h"
@@ -66,6 +66,8 @@ using namespace device;
 
 namespace septentrio
 {
+
+ModuleBase::Descriptor SeptentrioDriver::desc{task_spawn, custom_command, print_usage};
 
 /**
  * RTC drift time when time synchronization is needed (in seconds).
@@ -92,10 +94,11 @@ constexpr size_t k_min_receiver_read_bytes = 32;
 */
 constexpr uint32_t k_septentrio_receiver_default_baud_rate = 115200;
 
-constexpr uint8_t k_max_command_size            = 120;
+constexpr uint8_t k_max_command_size            = 140;
 constexpr uint16_t k_timeout_5hz                = 500;
 constexpr uint32_t k_read_buffer_size           = 150;
 constexpr time_t k_gps_epoch_secs               = 1234567890ULL; // TODO: This seems wrong
+constexpr hrt_abstime k_message_timeout = 6_s; /// A message is considered missing if we havent received it for this period of time
 
 // Septentrio receiver commands
 // - erst: exeResetReceiver
@@ -112,7 +115,7 @@ constexpr const char *k_command_reset_hot = "erst,soft,none\n";
 constexpr const char *k_command_reset_warm = "erst,soft,PVTData\n";
 constexpr const char *k_command_reset_cold = "erst,hard,SatData\n";
 constexpr const char *k_command_sbf_output_pvt =
-	"sso,Stream%" PRIu32 ",%s,PVTGeodetic+VelCovGeodetic+DOP+AttEuler+AttCovEuler+EndOfPVT+ReceiverStatus,%s\n";
+	"sso,Stream%lu,%s,PVTGeodetic+VelCovGeodetic+DOP+AttEuler+AttCovEuler+EndOfPVT+ReceiverStatus+GALAuthStatus+RFStatus+QualityInd,%s\n";
 constexpr const char *k_command_set_sbf_output =
 	"sso,Stream%" PRIu32 ",%s,%s%s,%s\n";
 constexpr const char *k_command_clear_sbf = "sso,Stream%" PRIu32 ",%s,none,off\n";
@@ -310,6 +313,7 @@ void SeptentrioDriver::run()
 
 					SEP_INFO("Automatic configuration finished");
 					_state = State::ReceivingData;
+					initialize_message_tracker();
 
 				} else {
 					_state = State::DetectingBaudRate;
@@ -323,7 +327,8 @@ void SeptentrioDriver::run()
 
 				receive_result = receive(k_timeout_5hz);
 
-				if (receive_result == -1) {
+				if (receive_result == -1 || receiver_configuration_healthy() == false) {
+					SEP_WARN("Receiver unhealthy, reconfiguring the receiver.");
 					_state = State::DetectingBaudRate;
 				}
 
@@ -345,6 +350,13 @@ void SeptentrioDriver::run()
 		}
 	}
 
+}
+
+int SeptentrioDriver::run_trampoline(int argc, char *argv[])
+{
+	return ModuleBase::run_trampoline_impl(desc, [](int ac, char *av[]) -> ModuleBase * {
+		return SeptentrioDriver::instantiate(ac, av);
+	}, argc, argv);
 }
 
 int SeptentrioDriver::task_spawn(int argc, char *argv[])
@@ -372,14 +384,14 @@ int SeptentrioDriver::task_spawn(int argc, char *argv[], Instance instance)
 						(char *const *)argv);
 
 	if (task_id < 0) {
-		// `_task_id` of module that hasn't been started before or has been stopped should already be -1.
+		// `desc.task_id` of module that hasn't been started before or has been stopped should already be -1.
 		// This is just to make sure.
-		_task_id = -1;
+		desc.task_id = -1;
 		return -errno;
 	}
 
 	if (instance == Instance::Main) {
-		_task_id = task_id;
+		desc.task_id = task_id;
 	}
 
 	return 0;
@@ -428,7 +440,7 @@ SeptentrioDriver *SeptentrioDriver::instantiate(int argc, char *argv[], Instance
 
 	bool valid_chosen_baud_rate {false};
 
-	for (uint8_t i = 0; i < sizeof(k_supported_baud_rates) / sizeof(k_supported_baud_rates[0]); i++) {
+	for (size_t i = 0; i < sizeof(k_supported_baud_rates) / sizeof(k_supported_baud_rates[0]); i++) {
 		switch (instance) {
 		case Instance::Main:
 			if (arguments.baud_rate_main == static_cast<int>(k_supported_baud_rates[i])) {
@@ -489,12 +501,12 @@ int SeptentrioDriver::custom_command(int argc, char *argv[])
 	const char *failure_reason {"unknown command"};
 	SeptentrioDriver *driver_instance;
 
-	if (!is_running()) {
+	if (!is_running(desc)) {
 		PX4_INFO("not running");
 		return -1;
 	}
 
-	driver_instance = get_instance();
+	driver_instance = get_instance<SeptentrioDriver>(desc);
 
 	if (argc >= 1 && strcmp(argv[0], "reset") == 0) {
 		if (argc == 2) {
@@ -759,9 +771,11 @@ int SeptentrioDriver::detect_serial_port(char* const port_name) {
 
 		char* port_name_address = strstr(buf, ">");
 
-		// Check if we found a port candidate.
-		if (buffer_offset > 4 && port_name_address != nullptr) {
-			size_t port_name_offset = reinterpret_cast<size_t>(port_name_address) - reinterpret_cast<size_t>(buf) - 4;
+		// Check if we found a port candidate. The prompt must be preceded by at least
+		// four bytes of port name in the same buffer, otherwise the offset would
+		// underflow and read before buf.
+		if (port_name_address != nullptr && (port_name_address - buf) >= 4) {
+			size_t port_name_offset = static_cast<size_t>(port_name_address - buf) - 4;
 			for (size_t i = 0; i < 4; i++) {
 				port_name[i] = buf[port_name_offset + i];
 			}
@@ -967,7 +981,7 @@ SeptentrioDriver::ConfigureResult SeptentrioDriver::configure()
 	}
 
 	// Output a set of SBF blocks on a given connection at a regular interval.
-	snprintf(msg, sizeof(msg), k_command_sbf_output_pvt, _receiver_stream_main, com_port, sbf_frequency);
+	snprintf(msg, sizeof(msg), k_command_sbf_output_pvt, (long unsigned int) _receiver_stream_main, com_port, sbf_frequency);
 	if (!send_message_and_wait_for_ack(msg, k_receiver_ack_timeout_fast)) {
 		SEP_WARN("CONFIG: Failed to configure SBF");
 		return ConfigureResult::FailedCompletely;
@@ -1052,7 +1066,7 @@ int SeptentrioDriver::process_message()
 		}
 		case BlockID::DOP: {
 			SEP_TRACE_PARSING("Processing DOP SBF message");
-			_current_interval_messages.dop = true;
+			_message_tracker.dop = hrt_absolute_time();
 
 			DOP dop;
 
@@ -1069,7 +1083,7 @@ int SeptentrioDriver::process_message()
 			using Error = PVTGeodetic::Error;
 
 			SEP_TRACE_PARSING("Processing PVTGeodetic SBF message");
-			_current_interval_messages.pvt_geodetic = true;
+			_message_tracker.pvt_geodetic = hrt_absolute_time();
 
 			Header header;
 			PVTGeodetic pvt_geodetic;
@@ -1191,20 +1205,138 @@ int SeptentrioDriver::process_message()
 			if (_sbf_decoder.parse(&receiver_status) == PX4_OK) {
 				_sensor_gps.rtcm_msg_used = receiver_status.rx_state_diff_corr_in ? sensor_gps_s::RTCM_MSG_USED_USED : sensor_gps_s::RTCM_MSG_USED_NOT_USED;
 				_time_synced = receiver_status.rx_state_wn_set && receiver_status.rx_state_tow_set;
+
+				_sensor_gps.system_error = sensor_gps_s::SYSTEM_ERROR_OK;
+
+				if (receiver_status.rx_error_cpu_overload) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_CPU_OVERLOAD;
+				}
+				if (receiver_status.rx_error_antenna) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_ANTENNA;
+				}
+				if (receiver_status.ext_error_diff_corr_error) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_INCOMING_CORRECTIONS;
+				}
+				if (receiver_status.ext_error_setup_error) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_CONFIGURATION;
+				}
+				if (receiver_status.rx_error_software) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_SOFTWARE;
+				}
+				if (receiver_status.rx_error_congestion) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_OUTPUT_CONGESTION;
+				}
+				if (receiver_status.rx_error_missed_event) {
+					_sensor_gps.system_error |= sensor_gps_s::SYSTEM_ERROR_EVENT_CONGESTION;
+				}
 			}
 
 			break;
 		}
 		case BlockID::QualityInd: {
+			using Type = QualityIndicator::Type;
+
 			SEP_TRACE_PARSING("Processing QualityInd SBF message");
+
+			QualityInd quality_ind;
+
+			if (_sbf_decoder.parse(&quality_ind) == PX4_OK) {
+				_message_sensor_gnss_status.quality_available = true;
+				_message_sensor_gnss_status.device_id = get_device_id();
+
+				_message_sensor_gnss_status.quality_corrections = 255;
+				_message_sensor_gnss_status.quality_receiver = 255;
+				_message_sensor_gnss_status.quality_post_processing = 255;
+				_message_sensor_gnss_status.quality_gnss_signals = 255;
+
+				for (int i = 0; i < math::min(quality_ind.n, static_cast<uint8_t>(sizeof(quality_ind.indicators) / sizeof(quality_ind.indicators[0]))); i++) {
+					int quality = quality_ind.indicators[i].value;
+
+					switch (quality_ind.indicators[i].type) {
+					case Type::BaseStationMeasurements:
+						_message_sensor_gnss_status.quality_corrections = quality;
+						break;
+					case Type::Overall:
+						_message_sensor_gnss_status.quality_receiver = quality;
+						break;
+					case Type::RTKPostProcessing:
+						_message_sensor_gnss_status.quality_post_processing = quality;
+						break;
+					case Type::GNSSSignalsMainAntenna:
+						_message_sensor_gnss_status.quality_gnss_signals = quality;
+						break;
+					default:
+						break;
+					}
+				}
+
+
+				_message_sensor_gnss_status.timestamp = hrt_absolute_time();
+				_time_last_qualityind_received = hrt_absolute_time();
+				_sensor_gnss_status_pub.publish(_message_sensor_gnss_status);
+			}
+
 			break;
 		}
 		case BlockID::RFStatus: {
+			using InfoMode = RFBand::InfoMode;
+
 			SEP_TRACE_PARSING("Processing RFStatus SBF message");
+
+			RFStatus rf_status;
+
+			if (_sbf_decoder.parse(&rf_status) == PX4_OK) {
+				_sensor_gps.jamming_state = sensor_gps_s::JAMMING_STATE_OK;
+				_sensor_gps.spoofing_state = sensor_gps_s::SPOOFING_STATE_OK;
+
+				for (int i = 0; i < math::min(rf_status.n, static_cast<uint8_t>(sizeof(rf_status.rf_band) / sizeof(rf_status.rf_band[0]))); i++) {
+					InfoMode status = static_cast<InfoMode>(rf_status.rf_band[i].info_mode);
+
+					if(status == InfoMode::Interference){
+						_sensor_gps.jamming_state = sensor_gps_s::JAMMING_STATE_DETECTED;
+						break; // Worst case, we don't need to check the other bands
+					}
+
+					if(status == InfoMode::Suppressed || status == InfoMode::Mitigated){
+						_sensor_gps.jamming_state = sensor_gps_s::JAMMING_STATE_MITIGATED;
+					}
+				}
+
+				if (rf_status.flags_inauthentic_gnss_signals || rf_status.flags_inauthentic_navigation_message) {
+					_sensor_gps.spoofing_state = sensor_gps_s::SPOOFING_STATE_DETECTED;
+				}
+				_time_last_resilience_received = hrt_absolute_time();
+			}
+
 			break;
 		}
 		case BlockID::GALAuthStatus: {
+			using OSNMAStatus = GALAuthStatus::OSNMAStatus;
+
 			SEP_TRACE_PARSING("Processing GALAuthStatus SBF message");
+
+			GALAuthStatus gal_auth_status;
+
+			if (_sbf_decoder.parse(&gal_auth_status) == PX4_OK) {
+				switch (gal_auth_status.osnmaStatus()) {
+				case OSNMAStatus::Disabled:
+					_sensor_gps.authentication_state = sensor_gps_s::AUTHENTICATION_STATE_DISABLED;
+					break;
+				case OSNMAStatus::AwaitingTrustedTimeInfo:
+				case OSNMAStatus::Initializing:
+					_sensor_gps.authentication_state = sensor_gps_s::AUTHENTICATION_STATE_INITIALIZING;
+					break;
+				case OSNMAStatus::InitFailedInconsistentTime:
+				case OSNMAStatus::InitFailedKROOTInvalid:
+				case OSNMAStatus::InitFailedInvalidParam:
+					_sensor_gps.authentication_state = sensor_gps_s::AUTHENTICATION_STATE_ERROR;
+					break;
+				case OSNMAStatus::Authenticating:
+					_sensor_gps.authentication_state = sensor_gps_s::AUTHENTICATION_STATE_OK;
+					break;
+				}
+			}
+
 			break;
 		}
 		case BlockID::EndOfPVT: {
@@ -1216,7 +1348,7 @@ int SeptentrioDriver::process_message()
 		}
 		case BlockID::VelCovGeodetic: {
 			SEP_TRACE_PARSING("Processing VelCovGeodetic SBF message");
-			_current_interval_messages.vel_cov_geodetic = true;
+			_message_tracker.vel_cov_geodetic = hrt_absolute_time();
 
 			VelCovGeodetic vel_cov_geodetic;
 
@@ -1236,7 +1368,7 @@ int SeptentrioDriver::process_message()
 			using Error = AttEuler::Error;
 
 			SEP_TRACE_PARSING("Processing AttEuler SBF message");
-			_current_interval_messages.att_euler = true;
+			_message_tracker.att_euler = hrt_absolute_time();
 
 			AttEuler att_euler;
 
@@ -1261,7 +1393,7 @@ int SeptentrioDriver::process_message()
 			using Error = AttCovEuler::Error;
 
 			SEP_TRACE_PARSING("Processing AttCovEuler SBF message");
-			_current_interval_messages.att_cov_euler = true;
+			_message_tracker.att_cov_euler = hrt_absolute_time();
 
 			AttCovEuler att_cov_euler;
 
@@ -1277,11 +1409,36 @@ int SeptentrioDriver::process_message()
 		}
 		}
 
+		//Check for how recent the resilience data for reciever is, if outdated set to unknown
+		if ((_time_last_resilience_received != 0) && (hrt_elapsed_time(&_time_last_resilience_received) > 5_s)) {
+				_sensor_gps.jamming_state = sensor_gps_s::JAMMING_STATE_UNKNOWN;
+				_sensor_gps.spoofing_state = sensor_gps_s::SPOOFING_STATE_UNKNOWN;
+
+				_time_last_resilience_received = 0; // Reset
+		}
+
+		// Check for how recent the status data for receiver is, if outdated set to unknown
+		if ((_time_last_qualityind_received != 0) && (hrt_elapsed_time(&_time_last_qualityind_received) > 5_s)) {
+				_message_sensor_gnss_status.quality_available = false;
+				_message_sensor_gnss_status.device_id = get_device_id();
+				_message_sensor_gnss_status.timestamp = hrt_absolute_time();
+
+				_message_sensor_gnss_status.quality_corrections = 255;
+				_message_sensor_gnss_status.quality_receiver = 255;
+				_message_sensor_gnss_status.quality_post_processing = 255;
+				_message_sensor_gnss_status.quality_gnss_signals = 255;
+
+
+				_sensor_gnss_status_pub.publish(_message_sensor_gnss_status);
+
+				_time_last_qualityind_received = 0; // Reset
+		}
+
 		break;
 	}
 	case DecodingStatus::RTCMv3: {
 		SEP_TRACE_PARSING("Processing RTCMv3 message");
-		publish_rtcm_corrections(_rtcm_decoder->message(), _rtcm_decoder->received_bytes());
+		publish_moving_baseline(_rtcm_decoder->message(), _rtcm_decoder->received_bytes());
 		break;
 	}
 	}
@@ -1469,62 +1626,105 @@ int SeptentrioDriver::set_baudrate(uint32_t baud)
 	}
 }
 
-void SeptentrioDriver::handle_inject_data_topic()
+void SeptentrioDriver::drain_rtcm_corrections()
 {
-	// We don't want to call copy again further down if we have already done a copy in the selection process.
+	// rtcm_corrections may have several sources (MAVLink plus CAN nodes), one uORB instance each.
+	rtcm_data_s msg;
 	bool already_copied = false;
-	gps_inject_data_s msg;
 
 	const hrt_abstime now = hrt_absolute_time();
 
 	// If there has not been a valid RTCM message for a while, try to switch to a different RTCM link
 	if (now > _last_rtcm_injection_time + 5_s) {
-		for (int instance = 0; instance < _gps_inject_data_sub.size(); instance++) {
-			const bool exists = _gps_inject_data_sub[instance].advertised();
-
-			if (exists) {
-				if (_gps_inject_data_sub[instance].copy(&msg)) {
-					if (now < msg.timestamp + 5_s) {
-						// Remember that we already did a copy on this instance.
-						already_copied = true;
-						_selected_rtcm_instance = instance;
-						break;
-					}
+		for (int instance = 0; instance < _rtcm_corrections_sub.size(); instance++) {
+			if (_rtcm_corrections_sub[instance].advertised() && _rtcm_corrections_sub[instance].copy(&msg)) {
+				if (msg.device_id != get_device_id() && now < msg.timestamp + 5_s) {
+					already_copied = true;
+					_selected_rtcm_instance = instance;
+					break;
 				}
 			}
 		}
 	}
 
 	bool updated = already_copied;
-
-	// Limit maximum number of GPS injections to 8 since usually
-	// GPS injections should consist of 1-4 packets (GPS, GLONASS, BeiDou, Galileo).
-	// Looking at 8 packets thus guarantees, that at least a full injection
-	// data set is evaluated.
-	// Moving Base requires a higher rate, so we allow up to 8 packets.
-	const size_t max_num_injections = gps_inject_data_s::ORB_QUEUE_LENGTH;
 	size_t num_injections = 0;
 
 	do {
 		if (updated) {
 			num_injections++;
 
-			// Prevent injection of data from self or from ground if moving base and this is rover.
-			if ((_instance == Instance::Secondary && msg.device_id != get_device_id()) || (_instance == Instance::Main && msg.device_id == get_device_id()) || _receiver_setup != ReceiverSetup::MovingBase) {
-				/* Write the message to the gps device. Note that the message could be fragmented.
-				* But as we don't write anywhere else to the device during operation, we don't
-				* need to assemble the message first.
-				*/
-				write(msg.data, msg.len);
-
-				++_current_interval_rtcm_injections;
+			// Prevent injection of data from self
+			if (msg.device_id != get_device_id()) {
+				_rtcm_corrections_framer.addData(msg.data, msg.len);
 				_last_rtcm_injection_time = hrt_absolute_time();
 			}
 		}
 
-		updated = _gps_inject_data_sub[_selected_rtcm_instance].update(&msg);
+		auto &sub = _rtcm_corrections_sub[_selected_rtcm_instance];
+		const unsigned last_generation = sub.get_last_generation();
 
-	} while (updated && num_injections < max_num_injections);
+		updated = sub.update(&msg);
+
+		if (updated && sub.get_last_generation() != last_generation + 1) {
+			PX4_WARN("%s lost, generation %u -> %u", sub.get_topic()->o_name,
+				 last_generation, sub.get_last_generation());
+		}
+	} while (updated && num_injections < rtcm_data_s::ORB_QUEUE_LENGTH);
+}
+
+void SeptentrioDriver::drain_moving_baseline()
+{
+	// rtcm_moving_baseline has a single publisher (instance 0); no stale-link selection needed.
+	rtcm_data_s msg;
+	size_t num_injections = 0;
+
+	while (num_injections < rtcm_data_s::ORB_QUEUE_LENGTH) {
+		const unsigned last_generation = _rtcm_moving_baseline_sub.get_last_generation();
+
+		if (!_rtcm_moving_baseline_sub.update(&msg)) {
+			break;
+		}
+
+		num_injections++;
+
+		if (_rtcm_moving_baseline_sub.get_last_generation() != last_generation + 1) {
+			PX4_WARN("%s lost, generation %u -> %u", _rtcm_moving_baseline_sub.get_topic()->o_name,
+				 last_generation, _rtcm_moving_baseline_sub.get_last_generation());
+		}
+
+		// Prevent injection of data from self
+		if (msg.device_id != get_device_id()) {
+			_rtcm_moving_baseline_framer.addData(msg.data, msg.len);
+		}
+	}
+}
+
+void SeptentrioDriver::inject_rtcm_frames(gnss::CorrectionFramer &framer)
+{
+	size_t frame_len = {};
+	const uint8_t *frame_ptr = {};
+
+	while ((frame_ptr = framer.getNextMessage(&frame_len)) != nullptr) {
+		write(frame_ptr, frame_len);
+		framer.consumeMessage(frame_len);
+		++_current_interval_rtcm_injections;
+	}
+}
+
+void SeptentrioDriver::handle_inject_data_topic()
+{
+	// Fixed-base RTCM corrections (from MAVLink GPS_RTCM_DATA, UAVCAN RTCMStream).
+	// Both the moving-base (Secondary) and the rover (Main) can benefit from external RTCM.
+	drain_rtcm_corrections();
+	inject_rtcm_frames(_rtcm_corrections_framer);
+
+	// Moving-baseline RTCM is only consumed by the rover (Main instance) in a moving-base setup.
+	// Single publisher, so no instance selection - just drain it into the receiver.
+	if (_receiver_setup == ReceiverSetup::MovingBase && _instance == Instance::Main) {
+		drain_moving_baseline();
+		inject_rtcm_frames(_rtcm_moving_baseline_framer);
+	}
 }
 
 void SeptentrioDriver::publish()
@@ -1532,6 +1732,15 @@ void SeptentrioDriver::publish()
 	_sensor_gps.device_id = get_device_id();
 	_sensor_gps.selected_rtcm_instance = _selected_rtcm_instance;
 	_sensor_gps.rtcm_injection_rate = rtcm_injection_frequency();
+	_sensor_gps.timestamp = hrt_absolute_time();
+
+	_failure_config.update();
+
+	if (!failure_injection::process(_failure_config, failure_injection_s::FAILURE_UNIT_SENSOR_GPS,
+					_sensor_gps_pub.get_instance(), _sensor_gps, _stuck)) {
+		return;
+	}
+
 	_sensor_gps_pub.publish(_sensor_gps);
 }
 
@@ -1547,44 +1756,35 @@ bool SeptentrioDriver::first_gps_uorb_message_created() const
 	return _sensor_gps.timestamp != 0;
 }
 
-void SeptentrioDriver::publish_rtcm_corrections(uint8_t *data, size_t len)
+void SeptentrioDriver::publish_moving_baseline(uint8_t *data, size_t len)
 {
-	gps_inject_data_s gps_inject_data{};
+	// The only path into this function is the moving-base Secondary decoding RTCM from its
+	// receiver (see _rtcm_decoder allocation in the constructor), so the output is always
+	// moving-baseline data intended for the rover.
+	rtcm_data_s moving_baseline{};
 
-	gps_inject_data.timestamp = hrt_absolute_time();
-	gps_inject_data.device_id = get_device_id();
+	moving_baseline.timestamp = hrt_absolute_time();
+	moving_baseline.device_id = get_device_id();
 
-	size_t capacity = (sizeof(gps_inject_data.data) / sizeof(gps_inject_data.data[0]));
-
-	if (len > capacity) {
-		gps_inject_data.flags = 1; //LSB: 1=fragmented
-
-	} else {
-		gps_inject_data.flags = 0;
-	}
+	const size_t capacity = sizeof(moving_baseline.data);
+	moving_baseline.flags = (len > capacity) ? 1 : 0; // LSB: 1=fragmented
 
 	size_t written = 0;
 
 	while (written < len) {
-
-		gps_inject_data.len = len - written;
-
-		if (gps_inject_data.len > capacity) {
-			gps_inject_data.len = capacity;
-		}
-
-		memcpy(gps_inject_data.data, &data[written], gps_inject_data.len);
-
-		_gps_inject_data_pub.publish(gps_inject_data);
-
-		written = written + gps_inject_data.len;
+		const size_t chunk = math::min(len - written, capacity);
+		moving_baseline.len = chunk;
+		memcpy(moving_baseline.data, &data[written], chunk);
+		_rtcm_moving_baseline_pub.publish(moving_baseline);
+		written += chunk;
 	}
 }
 
 void SeptentrioDriver::dump_gps_data(const uint8_t *data, size_t len, DataDirection data_direction)
 {
 	gps_dump_s *dump_data = data_direction == DataDirection::FromReceiver ? _message_data_from_receiver : _message_data_to_receiver;
-	dump_data->instance = _instance == Instance::Main ? 0 : 1;
+	dump_data->instance = _instance == Instance::Main ? gps_dump_s::INSTANCE_MAIN : gps_dump_s::INSTANCE_SECONDARY;
+	dump_data->device_id = get_device_id();
 
 	while (len > 0) {
 		size_t write_len = len;
@@ -1626,11 +1826,9 @@ void SeptentrioDriver::start_update_monitoring_interval()
 	_last_interval_rtcm_injections = _current_interval_rtcm_injections;
 	_last_interval_bytes_written = _current_interval_bytes_written;
 	_last_interval_bytes_read = _current_interval_bytes_read;
-	_last_interval_messages = _current_interval_messages;
 	_current_interval_rtcm_injections = 0;
 	_current_interval_bytes_written = 0;
 	_current_interval_bytes_read = 0;
-	_current_interval_messages = MessageTracker {};
 	_current_interval_start_time = hrt_absolute_time();
 }
 
@@ -1661,11 +1859,19 @@ uint32_t SeptentrioDriver::input_data_rate() const
 
 bool SeptentrioDriver::receiver_configuration_healthy() const
 {
-	return _last_interval_messages.dop &&
-               _last_interval_messages.pvt_geodetic &&
-               _last_interval_messages.vel_cov_geodetic &&
-               _last_interval_messages.att_euler &&
-               _last_interval_messages.att_cov_euler;
+	return hrt_elapsed_time(&_message_tracker.dop) <= k_message_timeout &&
+               hrt_elapsed_time(&_message_tracker.pvt_geodetic) <= k_message_timeout &&
+               hrt_elapsed_time(&_message_tracker.vel_cov_geodetic) <= k_message_timeout &&
+               hrt_elapsed_time(&_message_tracker.att_euler) <= k_message_timeout &&
+               hrt_elapsed_time(&_message_tracker.att_cov_euler) <= k_message_timeout;
+}
+
+void SeptentrioDriver::initialize_message_tracker(){
+	_message_tracker.dop = hrt_absolute_time();
+	_message_tracker.pvt_geodetic = hrt_absolute_time();
+	_message_tracker.vel_cov_geodetic = hrt_absolute_time();
+	_message_tracker.att_euler = hrt_absolute_time();
+	_message_tracker.att_cov_euler = hrt_absolute_time();
 }
 
 float SeptentrioDriver::us_to_s(uint64_t us)
@@ -1716,5 +1922,5 @@ uint32_t SeptentrioDriver::get_parameter(const char *name, float *value)
 
 extern "C" __EXPORT int septentrio_main(int argc, char *argv[])
 {
-	return septentrio::SeptentrioDriver::main(argc, argv);
+	return ModuleBase::main(septentrio::SeptentrioDriver::desc, argc, argv);
 }

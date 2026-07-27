@@ -41,7 +41,8 @@ set(POSCONTROL_DEPENDENCIES
 	SlewRate
 	tecs
 	motion_planning
-    performance_model
+	performance_model
+	Sticks
 )
 
 if(CONFIG_FIGURE_OF_EIGHT)
@@ -60,8 +61,14 @@ px4_add_module(
 	SRCS
 		FixedWingModeManager.cpp
 		FixedWingModeManager.hpp
+		FirstOrderHoldAltitude.cpp
+		FirstOrderHoldAltitude.hpp
 		ControllerConfigurationHandler.cpp
 		ControllerConfigurationHandler.hpp
+	MODULE_CONFIG
+		fw_mode_manager_params.yaml
 	DEPENDS
 		${POSCONTROL_DEPENDENCIES}
 	)
+
+px4_add_unit_gtest(SRC FirstOrderHoldAltitudeTest.cpp EXTRA_SRCS FirstOrderHoldAltitude.cpp LINKLIBS geo mathlib)

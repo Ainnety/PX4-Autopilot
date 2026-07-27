@@ -39,7 +39,10 @@
 #include <pthread.h>
 #include <drivers/drv_hrt.h>
 #include <perf/perf_counter.h>
-#include <px4_platform_common/crypto.h>
+
+#if defined(PX4_CRYPTO)
+# include <px4_platform_common/crypto.h>
+#endif // PX4_CRYPTO
 
 namespace px4
 {
@@ -143,7 +146,7 @@ public:
 		_key_idx = key_idx;
 		_exchange_key_idx = exchange_key_idx;
 	}
-#endif
+#endif // PX4_CRYPTO
 
 private:
 	static void *run_helper(void *);
@@ -195,9 +198,13 @@ private:
 
 		inline void fsync() const;
 
-		void mark_read(size_t n) { _count -= n; _total_written += n; }
+		// _count is protected by LogWriterFile::_mtx (callers must hold it).
+		// _total_written is also written under that lock, but read without it
+		// from the logger main thread (log-rotation check), so use an atomic
+		// to make the unlocked read race-free.
+		void mark_read(size_t n) { _count -= n; _total_written.fetch_add(n); }
 
-		size_t total_written() const { return _total_written; }
+		size_t total_written() const { return _total_written.load(); }
 		size_t buffer_size() const { return _buffer_size; }
 		size_t count() const { return _count; }
 
@@ -210,7 +217,7 @@ private:
 		uint8_t *_buffer = nullptr;
 		size_t _head = 0; ///< next position to write to
 		size_t _count = 0; ///< number of bytes in _buffer to be written
-		size_t _total_written = 0;
+		px4::atomic<size_t> _total_written{0};
 		perf_counter_t _perf_write;
 		perf_counter_t _perf_fsync;
 	};
@@ -223,6 +230,7 @@ private:
 	pthread_mutex_t		_mtx;
 	pthread_cond_t		_cv;
 	pthread_t _thread = 0;
+
 #if defined(PX4_CRYPTO)
 	bool init_logfile_encryption(const LogType type);
 	PX4Crypto _crypto;
@@ -230,7 +238,7 @@ private:
 	px4_crypto_algorithm_t _algorithm;
 	uint8_t _key_idx;
 	uint8_t _exchange_key_idx;
-#endif
+#endif // PX4_CRYPTO
 
 };
 

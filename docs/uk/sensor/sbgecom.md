@@ -2,7 +2,7 @@
 
 [SBG-Systems](https://www.sbg-systems.com/) designs, manufactures, and support an extensive range of state-of-the-art inertial sensors such as Inertial Measurement Units (IMU), Attitude and Heading Reference Systems (AHRS), Inertial Navigation Systems with embedded GNSS (INS/GNSS), and so on.
 
-PX4 supports [all SBG Systems products](https://www.sbg-systems.com/products/) and can use these as an [external INS](../sensor/inertial_navigation_systems.md) (bypassing/replacing the EKF2 estimator), or as a source of raw sensor data provided to the navigation estimator.
+PX4 supports [all SBG Systems products](https://www.sbg-systems.com/) and can use these as an [external INS](../sensor/inertial_navigation_systems.md) (bypassing/replacing the EKF2 estimator), or as a source of raw sensor data provided to the navigation estimator.
 
 ![Ellipse](../../assets/hardware/sensors/inertial/ellipse-inertial-navigation-system.png)
 
@@ -17,7 +17,7 @@ SBG Systems products provide a range of benefits to PX4 users and can be integra
 
 The sbgECom PX4 driver is streamlined to provide a simple plug-and-play architecture, removing engineering obstacles and allowing the acceleration of the design, development, and launch of platforms to keep pace with the rapid rate of innovation.
 
-The driver supports [all SBG Systems products](https://www.sbg-systems.com/products/).
+The driver supports [all SBG Systems products](https://www.sbg-systems.com/).
 Зокрема, рекомендуємо наступні системи:
 
 - **Pulse:** Recommended for fixed-wing systems without hovering, where static heading is not necessary.
@@ -82,10 +82,7 @@ To use the sbgECom driver:
    In this case, MAVLink messages will be updated with the newly selected sensor.
 
    If you don't want to have this fallback mechanism, you must disable unwanted sensors.
-
-:::
-
-   4. If using the sbgECom as an INS, disable EKF2 using [EKF2_EN](../advanced_config/parameter_reference.md#EKF2_EN).
+   ::: 4. If using the sbgECom as an INS, disable EKF2 using [EKF2_EN](../advanced_config/parameter_reference.md#EKF2_EN).
 
 6. Перезавантажте PX4.
 
@@ -96,7 +93,7 @@ IMU data should be published at 200Hz.
 
 All High Performance and Ellipse 3.0 and higher SBG Systems INS can be configured directly from PX4 firmware:
 
-1. Enable [SBG_CONFIGURATION_EN](../advanced_config/parameter_reference.md#SBG_CONFIGURATION_EN)
+1. Enable [SBG_CONFIGURE_EN](../advanced_config/parameter_reference.md#SBG_CONFIGURE_EN).
 
 2. Provide a JSON file `sbg_settings.json` containing SBG Systems INS settings to be applied in your PX4 board `extras` directory (ex: `boards/px4/fmu-v5/extras`). The settings JSON file will be installed in `/etc/extras/sbg_settings.json` on the board.
 
@@ -111,7 +108,6 @@ All High Performance and Ellipse 3.0 and higher SBG Systems INS can be configure
 :::
 
 3. For testing purpose, it's also possible to modify SBG Systems INS settings on the fly:
-
    - By passing a JSON file path as argument when starting sbgecom driver (ex: `sbgecom start -f /fs/microsd/new_sbg_settings.json`)
    - By passing a JSON string as argument when starting sbgecom driver: (ex: `sbgecom start -s {"output":{"comA":{"messages":{"airData":"onChange"}}}}`)
 
@@ -155,5 +151,5 @@ and, if configured as an INS, publishes:
 
 ## Характеристики обладнання
 
-- [Product Briefs](https://www.sbg-systems.com/products/)
+- [Product Briefs](https://www.sbg-systems.com/)
 - [Datasheets](https://www.sbg-systems.com/contact/#products)
